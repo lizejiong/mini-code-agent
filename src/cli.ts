@@ -7,33 +7,33 @@ import { askYesNo, createInteractivePermissions } from './permissions.js';
 import { createModeController } from './modes/controller.js';
 import { createPlanStore } from './plans/store.js';
 import { createOpenAICompatibleProvider } from './providers/openaiCompatible.js';
+import type { ChatMessage } from './providers/types.js';
 import { resolveSessionStart } from './sessions/resume.js';
-import { appendTranscriptEntry } from './sessions/transcript.js';
+import {
+  appendTranscriptEntry,
+  transcriptEntriesToMessages,
+  type TranscriptEntry,
+} from './sessions/transcript.js';
 import { createRegistryForMode } from './tools/registryForMode.js';
+import { createAgentRunner } from './ui/useAgentRunner.js';
+import { renderTui } from './ui/renderTui.js';
 import { createWorkspace } from './workspace.js';
 
 function printHelp(): void {
   console.log(`mini-code-agent
 
 Usage:
-  mini-code-agent "your task"
-  mini-code-agent --plan "plan before implementing"
-  mini-code-agent --continue "your next task"
-  mini-code-agent --resume <sessionId> "your next task"
-  mini-code-agent --no-session-persistence "one-off task"
-  pnpm.cmd dev -- "your task"
+  mini-code-agent
+  pnpm.cmd dev
+
+说明:
+  默认启动交互式 TUI。脚本式任务参数已废弃，请进入 TUI 后输入任务。
 
 Environment:
   OPENAI_API_KEY    API key for an OpenAI-compatible provider
   OPENAI_BASE_URL   Base URL, for example https://api.openai.com/v1
   OPENAI_MODEL      Model name
-  MAX_AGENT_STEPS   Optional positive integer, default 10
-
-Session:
-  --plan                      Start this run in plan mode
-  --continue                  Continue the latest session for this workspace
-  --resume <sessionId>         Resume a specific session for this workspace
-  --no-session-persistence     Do not read or write session history`);
+  MAX_AGENT_STEPS   Optional positive integer, default 10`);
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -44,9 +44,10 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
-  const task = args.task;
-  if (!task) {
-    printHelp();
+  if (args.deprecatedScriptArgs) {
+    console.error(
+      '脚本式任务参数已废弃。请直接运行 pnpm.cmd dev 进入 TUI，然后在界面中输入任务。',
+    );
     process.exitCode = 1;
     return;
   }
@@ -60,46 +61,59 @@ async function main(argv: string[]): Promise<void> {
   const toolContext = { workspace, permissions };
   const session = await resolveSessionStart({
     cwd: workspace.root,
-    continueLatest: args.continueLatest,
-    resumeSessionId: args.resumeSessionId,
-    sessionPersistence: args.sessionPersistence,
+    continueLatest: false,
+    resumeSessionId: undefined,
+    sessionPersistence: true,
   });
-  console.error(`Session: ${session.sessionId}`);
+  let conversationMessages: ChatMessage[] = [...session.initialMessages];
+  const recordTranscriptEntry = async (entry: TranscriptEntry) => {
+    if (session.transcriptPath) {
+      await appendTranscriptEntry(session.transcriptPath, entry);
+    }
+
+    conversationMessages = [
+      ...conversationMessages,
+      ...transcriptEntriesToMessages([entry]),
+    ];
+  };
   const planStore = createPlanStore({ sessionId: session.sessionId });
   const modeController = createModeController({
     initialMode: session.initialMode,
     sessionId: session.sessionId,
     planStore,
     approvePlan,
-    recordTranscriptEntry: session.transcriptPath
-      ? async (entry) => appendTranscriptEntry(session.transcriptPath!, entry)
-      : undefined,
+    recordTranscriptEntry,
   });
 
-  if (args.forcePlanMode) {
-    await modeController.enterPlanMode();
-  }
-
-  const answer = await runAgent({
-    task,
-    initialMessages: session.initialMessages,
-    provider,
-    toolsForMode: (mode) =>
-      createRegistryForMode({
-        mode,
-        context: toolContext,
-        modeController,
-        planStore,
-      }),
-    modeController,
-    maxSteps: config.maxSteps,
+  renderTui({
     sessionId: session.sessionId,
-    recordTranscriptEntry: session.transcriptPath
-      ? async (entry) => appendTranscriptEntry(session.transcriptPath!, entry)
-      : undefined,
-  });
+    getMode: () => modeController.getMode(),
+    runTask: async (task, appendMessage) => {
+      const runner = createAgentRunner({
+        appendMessage,
+        runAgent: async ({ task, onEvent }) =>
+          runAgent({
+            task,
+            initialMessages: conversationMessages,
+            provider,
+            toolsForMode: (mode) =>
+              createRegistryForMode({
+                mode,
+                context: toolContext,
+                modeController,
+                planStore,
+              }),
+            modeController,
+            maxSteps: config.maxSteps,
+            sessionId: session.sessionId,
+            recordTranscriptEntry,
+            onEvent,
+          }),
+      });
 
-  console.log(answer);
+      await runner.run(task);
+    },
+  });
 }
 
 async function approvePlan(plan: string, planFilePath: string): Promise<boolean> {

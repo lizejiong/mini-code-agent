@@ -14,7 +14,15 @@ export type RunAgentOptions = {
   maxSteps: number;
   sessionId?: string;
   recordTranscriptEntry?: (entry: TranscriptEntry) => Promise<void>;
+  onEvent?: (event: AgentRunEvent) => void;
 };
+
+export type AgentRunEvent =
+  | { type: 'step_start'; step: number; maxSteps: number; mode: AgentMode }
+  | { type: 'assistant_tool_calls'; toolCalls: ChatToolCall[] }
+  | { type: 'tool_result'; name: string; result: ToolResult }
+  | { type: 'assistant_final'; content: string }
+  | { type: 'error'; error: string };
 
 export async function runAgent(options: RunAgentOptions): Promise<string> {
   const messages: ChatMessage[] = [
@@ -28,6 +36,13 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
 
   for (let step = 0; step < options.maxSteps; step += 1) {
     const mode = options.modeController?.getMode() ?? 'normal';
+    options.onEvent?.({
+      type: 'step_start',
+      step: step + 1,
+      maxSteps: options.maxSteps,
+      mode,
+    });
+
     const activeTools = getActiveTools(options, mode);
     const toolSchemas = activeTools.definitions.map((tool) => ({
       name: tool.name,
@@ -58,8 +73,17 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
         content: response.content,
         toolCalls: [],
       });
+      options.onEvent?.({
+        type: 'assistant_final',
+        content: response.content,
+      });
       return response.content;
     }
+
+    options.onEvent?.({
+      type: 'assistant_tool_calls',
+      toolCalls: response.toolCalls,
+    });
 
     messages.push({
       role: 'assistant',
@@ -74,6 +98,11 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
 
     for (const toolCall of response.toolCalls) {
       const result = await activeTools.execute(toolCall.name, toolCall.input);
+      options.onEvent?.({
+        type: 'tool_result',
+        name: toolCall.name,
+        result,
+      });
 
       /**
        * 工具结果序列化成 JSON，模型才能区分“成功但内容为空”和“结构化失败”。

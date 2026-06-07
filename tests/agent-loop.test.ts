@@ -33,6 +33,64 @@ function fakeRegistry(
 }
 
 describe('runAgent', () => {
+  test('emits step and final answer events', async () => {
+    const events: unknown[] = [];
+    const provider: ChatProvider = {
+      complete: async () => ({ content: 'done', toolCalls: [] }),
+    };
+
+    const answer = await runAgent({
+      task: 'Finish',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 3,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(answer).toBe('done');
+    expect(events).toEqual([
+      { type: 'step_start', step: 1, maxSteps: 3, mode: 'normal' },
+      { type: 'assistant_final', content: 'done' },
+    ]);
+  });
+
+  test('emits tool call and tool result events', async () => {
+    const events: unknown[] = [];
+    const responses: ChatCompletionResponse[] = [
+      {
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'echo', input: { value: 'hello' } }],
+      },
+      { content: 'done', toolCalls: [] },
+    ];
+    const provider: ChatProvider = {
+      complete: async () => responses.shift()!,
+    };
+
+    await runAgent({
+      task: 'Use tool',
+      provider,
+      tools: fakeRegistry([{ name: 'echo', content: 'hello' }]),
+      maxSteps: 3,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toEqual([
+      { type: 'step_start', step: 1, maxSteps: 3, mode: 'normal' },
+      {
+        type: 'assistant_tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'echo', input: { value: 'hello' } }],
+      },
+      {
+        type: 'tool_result',
+        name: 'echo',
+        result: { ok: true, content: 'hello' },
+      },
+      { type: 'step_start', step: 2, maxSteps: 3, mode: 'normal' },
+      { type: 'assistant_final', content: 'done' },
+    ]);
+  });
+
   test('executes model tool calls and returns the final answer', async () => {
     const requests: ChatCompletionRequest[] = [];
     const responses: ChatCompletionResponse[] = [
