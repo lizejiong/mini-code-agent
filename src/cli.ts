@@ -3,6 +3,7 @@ import { config as loadDotenv } from 'dotenv';
 import { runAgent } from './agent/loop.js';
 import { parseCliArgs } from './cliArgs.js';
 import { loadConfig } from './config.js';
+import { createProjectContextBuilder } from './context/projectContext.js';
 import { askYesNo, createInteractivePermissions } from './permissions.js';
 import { createModeController } from './modes/controller.js';
 import { createPlanStore } from './plans/store.js';
@@ -56,6 +57,9 @@ async function main(argv: string[]): Promise<void> {
 
   const config = loadConfig();
   const workspace = await createWorkspace(process.cwd());
+  const buildSystemContext = createProjectContextBuilder({
+    workspaceRoot: workspace.root,
+  });
   const provider = createOpenAICompatibleProvider(config);
   const permissions = createInteractivePermissions();
   const toolContext = { workspace, permissions };
@@ -107,6 +111,7 @@ async function main(argv: string[]): Promise<void> {
             maxSteps: config.maxSteps,
             sessionId: session.sessionId,
             recordTranscriptEntry,
+            buildSystemContext,
             onEvent,
           }),
       });

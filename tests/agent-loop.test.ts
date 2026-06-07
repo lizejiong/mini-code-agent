@@ -247,6 +247,94 @@ describe('runAgent', () => {
     expect(seenToolNames).toEqual([['EnterPlanMode'], ['write_plan']]);
   });
 
+  test('prepends project system context to provider messages', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: 'Read project',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      buildSystemContext: async () => 'Project context here',
+    });
+
+    expect(requests[0].messages[0]).toEqual({
+      role: 'system',
+      content: 'Project context here',
+    });
+    expect(requests[0].messages[1]).toEqual({
+      role: 'user',
+      content: 'Read project',
+    });
+  });
+
+  test('places project context before mode prompt', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: 'Plan',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      buildSystemContext: async () => 'Project context here',
+      modeController: {
+        getMode: () => 'normal',
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+    });
+
+    expect(requests[0].messages[0]).toEqual({
+      role: 'system',
+      content: 'Project context here',
+    });
+    expect(requests[0].messages[1]).toEqual({
+      role: 'system',
+      content: expect.stringContaining('normal mode'),
+    });
+  });
+
+  test('rebuilds system context on each model step', async () => {
+    const seenContexts: string[] = [];
+    let calls = 0;
+    const responses: ChatCompletionResponse[] = [
+      {
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'read_file', input: { path: 'a.ts' } }],
+      },
+      { content: 'done', toolCalls: [] },
+    ];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        seenContexts.push(request.messages[0].content);
+        return responses.shift()!;
+      },
+    };
+
+    await runAgent({
+      task: 'Read',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 2,
+      buildSystemContext: async () => `context ${++calls}`,
+    });
+
+    expect(seenContexts).toEqual(['context 1', 'context 2']);
+  });
+
   test('stops when the model keeps requesting tools past maxSteps', async () => {
     const provider: ChatProvider = {
       complete: async () => ({

@@ -15,6 +15,7 @@ export type RunAgentOptions = {
   sessionId?: string;
   recordTranscriptEntry?: (entry: TranscriptEntry) => Promise<void>;
   onEvent?: (event: AgentRunEvent) => void;
+  buildSystemContext?: () => Promise<string | undefined>;
 };
 
 export type AgentRunEvent =
@@ -49,18 +50,10 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
       description: tool.description,
       parameters: tool.parameters,
     }));
-    const requestMessages = options.modeController
-      ? [
-          {
-            role: 'system' as const,
-            content: createModeSystemPrompt(
-              mode,
-              options.modeController.getPlanFilePath(),
-            ),
-          },
-          ...messages,
-        ]
-      : messages;
+    const requestMessages = [
+      ...(await buildSystemMessages(options, mode)),
+      ...messages,
+    ];
 
     const response = await options.provider.complete({
       messages: requestMessages,
@@ -124,6 +117,32 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
 
   /** 达到最大步数时停止，避免模型反复请求工具导致失控循环。 */
   throw new Error('Agent stopped after reaching max steps');
+}
+
+async function buildSystemMessages(
+  options: RunAgentOptions,
+  mode: AgentMode,
+): Promise<ChatMessage[]> {
+  const systemMessages: ChatMessage[] = [];
+  const projectContext = await options.buildSystemContext?.();
+  if (projectContext?.trim()) {
+    /**
+     * 项目上下文必须排在模式提示词前面，让后续 normal/plan 规则可以建立在当前仓库事实之上。
+     */
+    systemMessages.push({ role: 'system', content: projectContext });
+  }
+
+  if (options.modeController) {
+    systemMessages.push({
+      role: 'system',
+      content: createModeSystemPrompt(
+        mode,
+        options.modeController.getPlanFilePath(),
+      ),
+    });
+  }
+
+  return systemMessages;
 }
 
 function getActiveTools(options: RunAgentOptions, mode: AgentMode): ToolRegistry {
