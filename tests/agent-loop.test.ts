@@ -5,6 +5,7 @@ import type {
   ChatCompletionResponse,
   ChatProvider,
 } from '../src/providers/types.js';
+import type { TranscriptEntry } from '../src/sessions/transcript.js';
 import type { ToolRegistry } from '../src/tools/types.js';
 
 function fakeRegistry(): ToolRegistry {
@@ -63,6 +64,85 @@ describe('runAgent', () => {
         role: 'tool',
         toolCallId: 'call-1',
         content: '{"ok":true,"content":"file content"}',
+      },
+    ]);
+  });
+
+  test('starts from resumed messages before appending the new task', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: 'Continue',
+      initialMessages: [{ role: 'user', content: 'Earlier task' }],
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+    });
+
+    expect(requests[0].messages).toEqual([
+      { role: 'user', content: 'Earlier task' },
+      { role: 'user', content: 'Continue' },
+    ]);
+  });
+
+  test('records user, assistant, tool, and final assistant transcript entries', async () => {
+    const entries: TranscriptEntry[] = [];
+    const responses: ChatCompletionResponse[] = [
+      {
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'read_file', input: { path: 'a.ts' } }],
+      },
+      { content: 'The file says: file content', toolCalls: [] },
+    ];
+    const provider: ChatProvider = {
+      complete: async () => responses.shift()!,
+    };
+
+    await runAgent({
+      task: 'Read a.ts',
+      sessionId: '550e8400-e29b-41d4-a716-446655440000',
+      recordTranscriptEntry: async (entry) => {
+        entries.push(entry);
+      },
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 3,
+    });
+
+    expect(entries).toEqual([
+      {
+        type: 'user',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: expect.any(String),
+        content: 'Read a.ts',
+      },
+      {
+        type: 'assistant',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: expect.any(String),
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'read_file', input: { path: 'a.ts' } }],
+      },
+      {
+        type: 'tool',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: expect.any(String),
+        toolCallId: 'call-1',
+        name: 'read_file',
+        result: { ok: true, content: 'file content' },
+      },
+      {
+        type: 'assistant',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: expect.any(String),
+        content: 'The file says: file content',
+        toolCalls: [],
       },
     ]);
   });

@@ -6,6 +6,9 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['--', 'read', 'README.md'])).toEqual({
       help: false,
       task: 'read README.md',
+      continueLatest: false,
+      resumeSessionId: undefined,
+      sessionPersistence: true,
     });
   });
 
@@ -13,6 +16,35 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['--', '--help'])).toEqual({
       help: true,
       task: '',
+      continueLatest: false,
+      resumeSessionId: undefined,
+      sessionPersistence: true,
+    });
+  });
+
+  test('parses session resume flags while preserving the task text', () => {
+    expect(parseCliArgs(['--continue', 'next', 'step'])).toEqual({
+      help: false,
+      task: 'next step',
+      continueLatest: true,
+      resumeSessionId: undefined,
+      sessionPersistence: true,
+    });
+
+    expect(parseCliArgs(['--resume', 'abc-123', 'fix', 'tests'])).toEqual({
+      help: false,
+      task: 'fix tests',
+      continueLatest: false,
+      resumeSessionId: 'abc-123',
+      sessionPersistence: true,
+    });
+
+    expect(parseCliArgs(['--no-session-persistence', 'one-off'])).toEqual({
+      help: false,
+      task: 'one-off',
+      continueLatest: false,
+      resumeSessionId: undefined,
+      sessionPersistence: false,
     });
   });
 });
