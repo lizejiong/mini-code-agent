@@ -4,6 +4,7 @@ export type ParsedCliArgs = {
   continueLatest: boolean;
   resumeSessionId: string | undefined;
   sessionPersistence: boolean;
+  forcePlanMode: boolean;
 };
 
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
@@ -16,6 +17,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let continueLatest = false;
   let resumeSessionId: string | undefined;
   let sessionPersistence = true;
+  let forcePlanMode = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -36,6 +38,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
 
+    if (arg === '--plan') {
+      forcePlanMode = true;
+      continue;
+    }
+
     if (arg === '--help' || arg === '-h') {
       continue;
     }
@@ -49,5 +56,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     continueLatest,
     resumeSessionId,
     sessionPersistence,
+    forcePlanMode,
   };
 }

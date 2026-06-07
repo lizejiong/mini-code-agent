@@ -9,6 +9,7 @@ describe('parseCliArgs', () => {
       continueLatest: false,
       resumeSessionId: undefined,
       sessionPersistence: true,
+      forcePlanMode: false,
     });
   });
 
@@ -19,6 +20,7 @@ describe('parseCliArgs', () => {
       continueLatest: false,
       resumeSessionId: undefined,
       sessionPersistence: true,
+      forcePlanMode: false,
     });
   });
 
@@ -29,6 +31,7 @@ describe('parseCliArgs', () => {
       continueLatest: true,
       resumeSessionId: undefined,
       sessionPersistence: true,
+      forcePlanMode: false,
     });
 
     expect(parseCliArgs(['--resume', 'abc-123', 'fix', 'tests'])).toEqual({
@@ -37,6 +40,7 @@ describe('parseCliArgs', () => {
       continueLatest: false,
       resumeSessionId: 'abc-123',
       sessionPersistence: true,
+      forcePlanMode: false,
     });
 
     expect(parseCliArgs(['--no-session-persistence', 'one-off'])).toEqual({
@@ -45,6 +49,18 @@ describe('parseCliArgs', () => {
       continueLatest: false,
       resumeSessionId: undefined,
       sessionPersistence: false,
+      forcePlanMode: false,
+    });
+  });
+
+  test('parses --plan as force plan mode without including it in the task', () => {
+    expect(parseCliArgs(['--plan', 'implement', 'auth'])).toEqual({
+      help: false,
+      task: 'implement auth',
+      continueLatest: false,
+      resumeSessionId: undefined,
+      sessionPersistence: true,
+      forcePlanMode: true,
     });
   });
 });

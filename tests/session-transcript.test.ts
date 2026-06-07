@@ -99,6 +99,30 @@ describe('session transcript', () => {
     ]);
   });
 
+  test('keeps mode entries in transcript but excludes them from chat messages', () => {
+    const entries: TranscriptEntry[] = [
+      {
+        type: 'mode',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:00.000Z',
+        mode: 'plan',
+        reason: 'enter_plan',
+        planFilePath:
+          'C:\\Users\\lzj\\.mini-code-agent\\plans\\550e8400-e29b-41d4-a716-446655440000.md',
+      },
+      {
+        type: 'user',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:01.000Z',
+        content: 'continue',
+      },
+    ];
+
+    expect(transcriptEntriesToMessages(entries)).toEqual([
+      { role: 'user', content: 'continue' },
+    ]);
+  });
+
   test('lists jsonl session files from newest to oldest', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mini-agent-transcript-'));
     const older = join(root, 'older.jsonl');

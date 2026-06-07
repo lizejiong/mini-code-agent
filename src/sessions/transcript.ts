@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, stat, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { AgentMode, ModeTranscriptReason } from '../modes/types.js';
 import type { ChatMessage, ChatToolCall } from '../providers/types.js';
 import type { ToolResult } from '../tools/types.js';
 
@@ -24,6 +25,14 @@ export type TranscriptEntry =
       toolCallId: string;
       name: string;
       result: ToolResult;
+    }
+  | {
+      type: 'mode';
+      sessionId: string;
+      timestamp: string;
+      mode: AgentMode;
+      reason: ModeTranscriptReason;
+      planFilePath?: string;
     };
 
 export async function appendTranscriptEntry(
@@ -54,27 +63,35 @@ export async function readTranscriptEntries(filePath: string): Promise<Transcrip
 }
 
 export function transcriptEntriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
-  return entries.map((entry) => {
+  return entries.flatMap<ChatMessage>((entry) => {
+    if (entry.type === 'mode') {
+      return [];
+    }
+
     if (entry.type === 'user') {
-      return { role: 'user', content: entry.content };
+      return [{ role: 'user', content: entry.content }];
     }
 
     if (entry.type === 'assistant') {
-      return {
-        role: 'assistant',
-        content: entry.content,
-        toolCalls: entry.toolCalls,
-      };
+      return [
+        {
+          role: 'assistant',
+          content: entry.content,
+          toolCalls: entry.toolCalls,
+        },
+      ];
     }
 
     /**
      * provider 层只认识 chat message；工具结果保持 JSON 字符串，避免恢复后上下文格式和实时执行路径不一致。
      */
-    return {
-      role: 'tool',
-      toolCallId: entry.toolCallId,
-      content: JSON.stringify(entry.result),
-    };
+    return [
+      {
+        role: 'tool',
+        toolCallId: entry.toolCallId,
+        content: JSON.stringify(entry.result),
+      },
+    ];
   });
 }
 

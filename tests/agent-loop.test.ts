@@ -8,11 +8,14 @@ import type {
 import type { TranscriptEntry } from '../src/sessions/transcript.js';
 import type { ToolRegistry } from '../src/tools/types.js';
 
-function fakeRegistry(): ToolRegistry {
+function fakeRegistry(
+  tools: Array<{ name: string; content?: string }> = [
+    { name: 'read_file', content: 'file content' },
+  ],
+): ToolRegistry {
   return {
-    definitions: [
-      {
-        name: 'read_file',
+    definitions: tools.map((tool) => ({
+        name: tool.name,
         description: 'Read a file',
         parameters: {
           type: 'object',
@@ -21,9 +24,11 @@ function fakeRegistry(): ToolRegistry {
         },
         inputSchema: {} as never,
         execute: async () => ({ ok: true, content: 'file content' }),
-      },
-    ],
-    execute: async () => ({ ok: true, content: 'file content' }),
+      })),
+    execute: async (name) => ({
+      ok: true,
+      content: tools.find((tool) => tool.name === name)?.content ?? 'file content',
+    }),
   };
 }
 
@@ -145,6 +150,43 @@ describe('runAgent', () => {
         toolCalls: [],
       },
     ]);
+  });
+
+  test('uses tools for the current mode on each model step', async () => {
+    const seenToolNames: string[][] = [];
+    let mode: 'normal' | 'plan' = 'normal';
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        seenToolNames.push(request.tools.map((tool) => tool.name));
+        if (seenToolNames.length === 1) {
+          mode = 'plan';
+          return {
+            content: '',
+            toolCalls: [{ id: 'call-1', name: 'EnterPlanMode', input: {} }],
+          };
+        }
+
+        return { content: 'planned', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: 'Plan first',
+      provider,
+      maxSteps: 3,
+      modeController: {
+        getMode: () => mode,
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+      toolsForMode: (currentMode) =>
+        currentMode === 'normal'
+          ? fakeRegistry([{ name: 'EnterPlanMode', content: 'entered' }])
+          : fakeRegistry([{ name: 'write_plan', content: 'written' }]),
+    });
+
+    expect(seenToolNames).toEqual([['EnterPlanMode'], ['write_plan']]);
   });
 
   test('stops when the model keeps requesting tools past maxSteps', async () => {

@@ -71,6 +71,130 @@ describe('local tools', () => {
     });
   });
 
+  test('edit_file replaces a unique text fragment', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'example.ts'), 'const name = "old";\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('edit_file', {
+      path: 'src/example.ts',
+      old_text: '"old"',
+      new_text: '"new"',
+    });
+
+    await expect(readFile(join(root, 'src', 'example.ts'), 'utf8')).resolves.toBe(
+      'const name = "new";\n',
+    );
+    expect(result).toEqual({
+      ok: true,
+      content: 'Edited src/example.ts (lines 1-1)',
+    });
+  });
+
+  test('edit_file reports when the old text is not found', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'example.ts'), 'const name = "old";\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('edit_file', {
+      path: 'example.ts',
+      old_text: '"missing"',
+      new_text: '"new"',
+    });
+
+    await expect(readFile(join(root, 'example.ts'), 'utf8')).resolves.toBe(
+      'const name = "old";\n',
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: 'old_text not found in example.ts',
+    });
+  });
+
+  test('edit_file rejects non-unique old text', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'example.ts'), 'same\nsame\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('edit_file', {
+      path: 'example.ts',
+      old_text: 'same',
+      new_text: 'changed',
+    });
+
+    await expect(readFile(join(root, 'example.ts'), 'utf8')).resolves.toBe(
+      'same\nsame\n',
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: 'old_text appears 2 times in example.ts; provide a larger unique fragment',
+    });
+  });
+
+  test('edit_file deletes text when new_text is empty', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'example.ts'), 'keep\nremove me\nkeep\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('edit_file', {
+      path: 'example.ts',
+      old_text: 'remove me\n',
+      new_text: '',
+    });
+
+    await expect(readFile(join(root, 'example.ts'), 'utf8')).resolves.toBe(
+      'keep\nkeep\n',
+    );
+    expect(result).toEqual({
+      ok: true,
+      content: 'Edited example.ts (lines 2-2)',
+    });
+  });
+
+  test('edit_file reports denial without changing the file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'example.ts'), 'before\n', 'utf8');
+    const registry = await createRegistry(
+      root,
+      testPermissions({ approveWriteFile: async () => false }),
+    );
+
+    const result = await registry.execute('edit_file', {
+      path: 'example.ts',
+      old_text: 'before',
+      new_text: 'after',
+    });
+
+    await expect(readFile(join(root, 'example.ts'), 'utf8')).resolves.toBe(
+      'before\n',
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: 'User denied edit_file for example.ts',
+    });
+  });
+
+  test('edit_file replaces multiline fragments', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'example.ts'), 'before\nold\nblock\nafter\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('edit_file', {
+      path: 'example.ts',
+      old_text: 'old\nblock',
+      new_text: 'new\nblock',
+    });
+
+    await expect(readFile(join(root, 'example.ts'), 'utf8')).resolves.toBe(
+      'before\nnew\nblock\nafter\n',
+    );
+    expect(result).toEqual({
+      ok: true,
+      content: 'Edited example.ts (lines 2-3)',
+    });
+  });
+
   test('search_files lists matching file paths and respects the limit', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
     await mkdir(join(root, 'src'), { recursive: true });
@@ -85,6 +209,26 @@ describe('local tools', () => {
     });
 
     expect(result).toEqual({ ok: true, content: 'src/alpha.ts' });
+  });
+
+  test('search_files skips generated, dependency, and git directories', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(root, 'node_modules', 'pkg'), { recursive: true });
+    await mkdir(join(root, 'dist', 'src'), { recursive: true });
+    await mkdir(join(root, '.git', 'hooks'), { recursive: true });
+    await writeFile(join(root, 'src', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, 'node_modules', 'pkg', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, 'dist', 'src', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, '.git', 'hooks', 'tool.ts'), '', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('search_files', {
+      query: 'tool.ts',
+      limit: 20,
+    });
+
+    expect(result).toEqual({ ok: true, content: 'src/tool.ts' });
   });
 
   test('run_command executes approved commands in the workspace', async () => {

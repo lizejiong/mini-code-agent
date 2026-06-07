@@ -15,7 +15,7 @@ export function createInteractivePermissions(): PermissionController {
   };
 }
 
-async function askYesNo(question: string): Promise<boolean> {
+export async function askYesNo(question: string): Promise<boolean> {
   const readline = createInterface({ input, output });
   try {
     const answer = await readline.question(question);

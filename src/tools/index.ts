@@ -6,11 +6,16 @@ import type {
   ToolResult,
 } from './types.js';
 import { runCommandTool } from './commandTool.js';
-import { readFileTool, searchFilesTool, writeFileTool } from './fileTools.js';
+import {
+  editFileTool,
+  readFileTool,
+  searchFilesTool,
+  writeFileTool,
+} from './fileTools.js';
 
 export function createDefaultToolRegistry(context: ToolContext): ToolRegistry {
   return createToolRegistry(
-    [readFileTool, writeFileTool, searchFilesTool, runCommandTool],
+    [readFileTool, writeFileTool, editFileTool, searchFilesTool, runCommandTool],
     context,
   );
 }

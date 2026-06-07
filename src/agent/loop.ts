@@ -1,4 +1,6 @@
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../providers/types.js';
+import type { AgentMode, ModeController } from '../modes/types.js';
+import { createModeSystemPrompt } from '../prompts/planMode.js';
 import type { TranscriptEntry } from '../sessions/transcript.js';
 import type { ToolRegistry, ToolResult } from '../tools/types.js';
 
@@ -6,7 +8,9 @@ export type RunAgentOptions = {
   task: string;
   initialMessages?: ChatMessage[];
   provider: ChatProvider;
-  tools: ToolRegistry;
+  tools?: ToolRegistry;
+  toolsForMode?: (mode: AgentMode) => ToolRegistry;
+  modeController?: ModeController;
   maxSteps: number;
   sessionId?: string;
   recordTranscriptEntry?: (entry: TranscriptEntry) => Promise<void>;
@@ -17,19 +21,34 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
     ...(options.initialMessages ?? []),
     { role: 'user', content: options.task },
   ];
-  const toolSchemas = options.tools.definitions.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-  }));
   await recordTranscriptEntry(options, {
     type: 'user',
     content: options.task,
   });
 
   for (let step = 0; step < options.maxSteps; step += 1) {
+    const mode = options.modeController?.getMode() ?? 'normal';
+    const activeTools = getActiveTools(options, mode);
+    const toolSchemas = activeTools.definitions.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+    const requestMessages = options.modeController
+      ? [
+          {
+            role: 'system' as const,
+            content: createModeSystemPrompt(
+              mode,
+              options.modeController.getPlanFilePath(),
+            ),
+          },
+          ...messages,
+        ]
+      : messages;
+
     const response = await options.provider.complete({
-      messages,
+      messages: requestMessages,
       tools: toolSchemas,
     });
 
@@ -54,7 +73,7 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
     });
 
     for (const toolCall of response.toolCalls) {
-      const result = await options.tools.execute(toolCall.name, toolCall.input);
+      const result = await activeTools.execute(toolCall.name, toolCall.input);
 
       /**
        * 工具结果序列化成 JSON，模型才能区分“成功但内容为空”和“结构化失败”。
@@ -76,6 +95,15 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
 
   /** 达到最大步数时停止，避免模型反复请求工具导致失控循环。 */
   throw new Error('Agent stopped after reaching max steps');
+}
+
+function getActiveTools(options: RunAgentOptions, mode: AgentMode): ToolRegistry {
+  const activeTools = options.toolsForMode?.(mode) ?? options.tools;
+  if (!activeTools) {
+    throw new Error('No tool registry configured');
+  }
+
+  return activeTools;
 }
 
 async function recordTranscriptEntry(

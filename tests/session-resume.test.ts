@@ -24,6 +24,7 @@ describe('resolveSessionStart', () => {
     expect(result.transcriptPath).toBe(getSessionFilePath(cwd, result.sessionId, home));
     expect(result.entries).toEqual([]);
     expect(result.initialMessages).toEqual([]);
+    expect(result.initialMode).toBe('normal');
   });
 
   test('creates an in-memory session when persistence is disabled', async () => {
@@ -43,6 +44,7 @@ describe('resolveSessionStart', () => {
     expect(result.transcriptPath).toBeUndefined();
     expect(result.entries).toEqual([]);
     expect(result.initialMessages).toEqual([]);
+    expect(result.initialMode).toBe('normal');
   });
 
   test('continues the newest session for the current project', async () => {
@@ -74,6 +76,7 @@ describe('resolveSessionStart', () => {
     expect(result.mode).toBe('continue');
     expect(result.sessionId).toBe(newerId);
     expect(result.initialMessages).toEqual([{ role: 'user', content: 'new' }]);
+    expect(result.initialMode).toBe('normal');
   });
 
   test('resumes a specific session id for the current project', async () => {
@@ -98,6 +101,31 @@ describe('resolveSessionStart', () => {
     expect(result.mode).toBe('resume');
     expect(result.sessionId).toBe(sessionId);
     expect(result.initialMessages).toEqual([{ role: 'user', content: 'restore me' }]);
+    expect(result.initialMode).toBe('normal');
+  });
+
+  test('restores the latest mode from transcript entries', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'mini-agent-session-home-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'mini-agent-project-'));
+    const sessionId = '550e8400-e29b-41d4-a716-446655440000';
+    await appendTranscriptEntry(getSessionFilePath(cwd, sessionId, home), {
+      type: 'mode',
+      sessionId,
+      timestamp: '2026-06-07T00:00:00.000Z',
+      mode: 'plan',
+      reason: 'enter_plan',
+      planFilePath: 'plan.md',
+    });
+
+    const result = await resolveSessionStart({
+      cwd,
+      sessionsHome: home,
+      continueLatest: false,
+      resumeSessionId: sessionId,
+      sessionPersistence: true,
+    });
+
+    expect(result.initialMode).toBe('plan');
   });
 
   test('reports missing sessions clearly', async () => {

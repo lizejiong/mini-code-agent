@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { access } from 'node:fs/promises';
+import type { AgentMode } from '../modes/types.js';
 import type { ChatMessage } from '../providers/types.js';
 import { createSessionId, isSessionId } from './ids.js';
 import { getProjectSessionsDir, getSessionFilePath } from './paths.js';
@@ -23,6 +24,7 @@ export type ResolvedSessionStart = {
   transcriptPath: string | undefined;
   entries: TranscriptEntry[];
   initialMessages: ChatMessage[];
+  initialMode: AgentMode;
   mode: 'new' | 'continue' | 'resume' | 'disabled';
   persistenceEnabled: boolean;
 };
@@ -77,6 +79,7 @@ export async function resolveSessionStart(
     transcriptPath: getSessionFilePath(options.cwd, sessionId, options.sessionsHome),
     entries: [],
     initialMessages: [],
+    initialMode: 'normal',
     mode: 'new',
     persistenceEnabled: true,
   };
@@ -91,6 +94,7 @@ function createEmptySession(
     transcriptPath,
     entries: [],
     initialMessages: [],
+    initialMode: 'normal',
     mode,
     persistenceEnabled: false,
   };
@@ -108,7 +112,19 @@ async function readExistingSession(
     transcriptPath,
     entries,
     initialMessages: transcriptEntriesToMessages(entries),
+    initialMode: getInitialMode(entries),
     mode,
     persistenceEnabled: true,
   };
+}
+
+function getInitialMode(entries: TranscriptEntry[]): AgentMode {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.type === 'mode') {
+      return entry.mode;
+    }
+  }
+
+  return 'normal';
 }
