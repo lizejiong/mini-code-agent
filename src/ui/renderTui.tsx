@@ -8,6 +8,8 @@ export type RenderTuiOptions = {
   runTask(
     task: string,
     appendMessage: (message: TuiMessage) => void,
+    appendAssistantDelta: (delta: string) => void,
+    finishAssistantMessage: (content: string) => void,
     refreshTodos: () => Promise<void>,
   ): Promise<void>;
   loadTodoSummary(): Promise<TuiTodoSummary>;

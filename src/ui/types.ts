@@ -1,7 +1,8 @@
 export type TuiMessage =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string }
-  | { role: 'tool'; content: string }
+  | { role: 'assistant'; content: string; streaming?: boolean }
+  | { role: 'tool_call'; content: string }
+  | { role: 'tool_result'; content: string; ok: boolean }
   | { role: 'status'; content: string }
   | { role: 'error'; content: string };
 

@@ -335,6 +335,86 @@ describe('runAgent', () => {
     expect(seenContexts).toEqual(['context 1', 'context 2']);
   });
 
+  test('streams assistant text when provider supports streaming', async () => {
+    const events: unknown[] = [];
+    const provider: ChatProvider = {
+      complete: async () => {
+        throw new Error('complete should not be called');
+      },
+      stream: async (_request, onChunk) => {
+        onChunk({ type: 'content_delta', content: '你' });
+        onChunk({ type: 'content_delta', content: '好' });
+        return { content: '你好', toolCalls: [] };
+      },
+    };
+
+    const answer = await runAgent({
+      task: 'Say hi',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(answer).toBe('你好');
+    expect(events).toEqual([
+      { type: 'step_start', step: 1, maxSteps: 1, mode: 'normal' },
+      { type: 'assistant_delta', content: '你' },
+      { type: 'assistant_delta', content: '好' },
+      { type: 'assistant_final', content: '你好' },
+    ]);
+  });
+
+  test('executes tool calls returned by streaming provider', async () => {
+    const events: unknown[] = [];
+    const responses: ChatCompletionResponse[] = [
+      {
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'echo', input: { value: 'hello' } }],
+      },
+      { content: 'done', toolCalls: [] },
+    ];
+    const provider: ChatProvider = {
+      complete: async () => {
+        throw new Error('complete should not be called');
+      },
+      stream: async () => responses.shift()!,
+    };
+
+    await runAgent({
+      task: 'Use streamed tool',
+      provider,
+      tools: fakeRegistry([{ name: 'echo', content: 'hello' }]),
+      maxSteps: 3,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toContainEqual({
+      type: 'assistant_tool_calls',
+      toolCalls: [{ id: 'call-1', name: 'echo', input: { value: 'hello' } }],
+    });
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      name: 'echo',
+      result: { ok: true, content: 'hello' },
+    });
+  });
+
+  test('falls back to complete when provider does not support streaming', async () => {
+    const provider: ChatProvider = {
+      complete: async () => ({ content: 'done', toolCalls: [] }),
+    };
+
+    const answer = await runAgent({
+      task: 'Fallback',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+    });
+
+    expect(answer).toBe('done');
+  });
+
   test('stops when the model keeps requesting tools past maxSteps', async () => {
     const provider: ChatProvider = {
       complete: async () => ({

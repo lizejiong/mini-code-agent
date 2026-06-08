@@ -36,6 +36,14 @@ export type ChatCompletionResponse = {
   toolCalls: ChatToolCall[];
 };
 
+export type ChatCompletionChunk =
+  | { type: 'content_delta'; content: string }
+  | { type: 'message_complete'; response: ChatCompletionResponse };
+
 export type ChatProvider = {
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
+  stream?(
+    request: ChatCompletionRequest,
+    onChunk: (chunk: ChatCompletionChunk) => void,
+  ): Promise<ChatCompletionResponse>;
 };

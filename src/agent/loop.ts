@@ -20,6 +20,7 @@ export type RunAgentOptions = {
 
 export type AgentRunEvent =
   | { type: 'step_start'; step: number; maxSteps: number; mode: AgentMode }
+  | { type: 'assistant_delta'; content: string }
   | { type: 'assistant_tool_calls'; toolCalls: ChatToolCall[] }
   | { type: 'tool_result'; name: string; result: ToolResult }
   | { type: 'assistant_final'; content: string }
@@ -55,10 +56,25 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
       ...messages,
     ];
 
-    const response = await options.provider.complete({
-      messages: requestMessages,
-      tools: toolSchemas,
-    });
+    const response = options.provider.stream
+      ? await options.provider.stream(
+          {
+            messages: requestMessages,
+            tools: toolSchemas,
+          },
+          (chunk) => {
+            if (chunk.type === 'content_delta') {
+              options.onEvent?.({
+                type: 'assistant_delta',
+                content: chunk.content,
+              });
+            }
+          },
+        )
+      : await options.provider.complete({
+          messages: requestMessages,
+          tools: toolSchemas,
+        });
 
     if (response.toolCalls.length === 0) {
       await recordTranscriptEntry(options, {

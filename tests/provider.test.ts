@@ -164,4 +164,86 @@ describe('createOpenAICompatibleProvider', () => {
       ],
     });
   });
+
+  test('streams content deltas from OpenAI-compatible SSE responses', async () => {
+    let requestBody: unknown;
+    const encoder = new TextEncoder();
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"好"}}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const provider = createOpenAICompatibleProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'model-a',
+      fetch: async (_url, init) => {
+        requestBody = JSON.parse(String(init!.body));
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '',
+          json: async () => ({}),
+          body: new ReadableStream({
+            start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue(encoder.encode(chunk));
+              }
+              controller.close();
+            },
+          }),
+        } as Response;
+      },
+    });
+    const deltas: string[] = [];
+
+    const response = await provider.stream!(
+      { messages: [{ role: 'user', content: 'Hi' }], tools: [] },
+      (chunk) => {
+        if (chunk.type === 'content_delta') {
+          deltas.push(chunk.content);
+        }
+      },
+    );
+
+    expect(requestBody).toMatchObject({ stream: true });
+    expect(deltas).toEqual(['你', '好']);
+    expect(response).toEqual({ content: '你好', toolCalls: [] });
+  });
+
+  test('aggregates streamed tool call deltas', async () => {
+    const encoder = new TextEncoder();
+    const chunks = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read_file","arguments":"{\\"path\\""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\\"src/a.ts\\"}"}}]}}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const provider = createOpenAICompatibleProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'model-a',
+      fetch: async () =>
+        ({
+          ok: true,
+          status: 200,
+          text: async () => '',
+          json: async () => ({}),
+          body: new ReadableStream({
+            start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue(encoder.encode(chunk));
+              }
+              controller.close();
+            },
+          }),
+        }) as Response,
+    });
+
+    const response = await provider.stream!({ messages: [], tools: [] }, () => {});
+
+    expect(response).toEqual({
+      content: '',
+      toolCalls: [{ id: 'call-1', name: 'read_file', input: { path: 'src/a.ts' } }],
+    });
+  });
 });

@@ -108,9 +108,17 @@ async function main(argv: string[]): Promise<void> {
     sessionId: session.sessionId,
     getMode: () => modeController.getMode(),
     loadTodoSummary,
-    runTask: async (task, appendMessage, refreshTodos) => {
+    runTask: async (
+      task,
+      appendMessage,
+      appendAssistantDelta,
+      finishAssistantMessage,
+      refreshTodos,
+    ) => {
       const runner = createAgentRunner({
         appendMessage,
+        appendAssistantDelta,
+        finishAssistantMessage,
         refreshTodos,
         runAgent: async ({ task, onEvent }) =>
           runAgent({

@@ -4,9 +4,9 @@ import type { TuiMessage } from '../src/ui/types.js';
 
 describe('createAgentRunner', () => {
   test('records user and assistant messages for a successful task', async () => {
-    const messages: unknown[] = [];
+    const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: (message) => messages.push(message),
+      ...fakeTuiCallbacks(messages),
       runAgent: async ({ task, onEvent }) => {
         onEvent?.({ type: 'step_start', step: 1, maxSteps: 10, mode: 'normal' });
         onEvent?.({ type: 'assistant_final', content: `finished ${task}` });
@@ -18,16 +18,16 @@ describe('createAgentRunner', () => {
 
     expect(messages).toEqual([
       { role: 'user', content: 'hello' },
-      { role: 'status', content: 'Step 1/10 mode=normal' },
+      { role: 'status', content: 'Step 1/10 · mode normal' },
       { role: 'assistant', content: 'finished hello' },
     ]);
     expect(runner.getStatus()).toBe('idle');
   });
 
   test('records tool events as tool messages', async () => {
-    const messages: unknown[] = [];
+    const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: (message) => messages.push(message),
+      ...fakeTuiCallbacks(messages),
       runAgent: async ({ onEvent }) => {
         onEvent?.({
           type: 'assistant_tool_calls',
@@ -47,16 +47,16 @@ describe('createAgentRunner', () => {
 
     expect(messages).toEqual([
       { role: 'user', content: 'read' },
-      { role: 'tool', content: 'read_file {"path":"a.ts"}' },
-      { role: 'tool', content: 'read_file ok' },
+      { role: 'tool_call', content: 'read_file a.ts' },
+      { role: 'tool_result', content: 'read_file ok 3 chars', ok: true },
       { role: 'assistant', content: 'done' },
     ]);
   });
 
   test('records errors and returns to idle', async () => {
-    const messages: unknown[] = [];
+    const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: (message) => messages.push(message),
+      ...fakeTuiCallbacks(messages),
       runAgent: async () => {
         throw new Error('boom');
       },
@@ -72,13 +72,13 @@ describe('createAgentRunner', () => {
   });
 
   test('does not start a second task while running', async () => {
-    const messages: unknown[] = [];
+    const messages: TuiMessage[] = [];
     let finishFirstTask!: () => void;
     const firstTask = new Promise<string>((resolve) => {
       finishFirstTask = () => resolve('done');
     });
     const runner = createAgentRunner({
-      appendMessage: (message) => messages.push(message),
+      ...fakeTuiCallbacks(messages),
       runAgent: async () => firstTask,
     });
 
@@ -97,7 +97,7 @@ describe('createAgentRunner', () => {
     let refreshed = 0;
     const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: (message) => messages.push(message),
+      ...fakeTuiCallbacks(messages),
       refreshTodos: async () => {
         refreshed += 1;
       },
@@ -118,8 +118,9 @@ describe('createAgentRunner', () => {
 
   test('does not refresh todos for non-todo tool results', async () => {
     let refreshed = 0;
+    const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: () => {},
+      ...fakeTuiCallbacks(messages),
       refreshTodos: async () => {
         refreshed += 1;
       },
@@ -140,8 +141,9 @@ describe('createAgentRunner', () => {
 
   test('does not refresh todos when todo_write fails', async () => {
     let refreshed = 0;
+    const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
-      appendMessage: () => {},
+      ...fakeTuiCallbacks(messages),
       refreshTodos: async () => {
         refreshed += 1;
       },
@@ -159,4 +161,70 @@ describe('createAgentRunner', () => {
 
     expect(refreshed).toBe(0);
   });
+
+  test('forwards assistant deltas to streaming callbacks', async () => {
+    const messages: TuiMessage[] = [];
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({ type: 'assistant_delta', content: '你' });
+        onEvent?.({ type: 'assistant_delta', content: '好' });
+        onEvent?.({ type: 'assistant_final', content: '你好' });
+        return '你好';
+      },
+    });
+
+    await runner.run('hi');
+
+    expect(messages).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '你好', streaming: false },
+    ]);
+  });
+
+  test('adds assistant final when no streaming message exists', async () => {
+    const messages: TuiMessage[] = [];
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({ type: 'assistant_final', content: 'done' });
+        return 'done';
+      },
+    });
+
+    await runner.run('hello');
+
+    expect(messages).toContainEqual({ role: 'assistant', content: 'done' });
+  });
 });
+
+function fakeTuiCallbacks(messages: TuiMessage[]) {
+  return {
+    appendMessage: (message: TuiMessage) => messages.push(message),
+    appendAssistantDelta: (delta: string) => {
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant' && last.streaming) {
+        messages[messages.length - 1] = {
+          ...last,
+          content: last.content + delta,
+        };
+        return;
+      }
+
+      messages.push({ role: 'assistant', content: delta, streaming: true });
+    },
+    finishAssistantMessage: (content: string) => {
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant' && last.streaming) {
+        messages[messages.length - 1] = {
+          role: 'assistant',
+          content: last.content || content,
+          streaming: false,
+        };
+        return;
+      }
+
+      messages.push({ role: 'assistant', content });
+    },
+  };
+}

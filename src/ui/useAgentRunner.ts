@@ -1,5 +1,10 @@
 import type { AgentRunEvent, RunAgentOptions } from '../agent/loop.js';
 import type { TuiMessage, TuiStatus } from './types.js';
+import {
+  formatStepStatus,
+  formatToolCall,
+  formatToolResult,
+} from './formatters.js';
 
 export type AgentRunnerRun = (
   options: Pick<RunAgentOptions, 'task' | 'onEvent'>,
@@ -7,6 +12,8 @@ export type AgentRunnerRun = (
 
 export type CreateAgentRunnerOptions = {
   appendMessage(message: TuiMessage): void;
+  appendAssistantDelta(delta: string): void;
+  finishAssistantMessage(content: string): void;
   refreshTodos?: () => Promise<void>;
   runAgent: AgentRunnerRun;
 };
@@ -33,7 +40,7 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
         await options.runAgent({
           task,
           onEvent: (event) => {
-            appendEventMessage(options.appendMessage, event);
+            appendEventMessage(options, event);
             pendingRefreshes.push(maybeRefreshTodos(options, event));
           },
         });
@@ -69,39 +76,42 @@ async function maybeRefreshTodos(
 }
 
 function appendEventMessage(
-  appendMessage: (message: TuiMessage) => void,
+  options: CreateAgentRunnerOptions,
   event: AgentRunEvent,
 ): void {
   if (event.type === 'step_start') {
-    appendMessage({
+    options.appendMessage({
       role: 'status',
-      content: `Step ${event.step}/${event.maxSteps} mode=${event.mode}`,
+      content: formatStepStatus(event),
     });
+    return;
+  }
+
+  if (event.type === 'assistant_delta') {
+    options.appendAssistantDelta(event.content);
     return;
   }
 
   if (event.type === 'assistant_tool_calls') {
     for (const toolCall of event.toolCalls) {
-      appendMessage({
-        role: 'tool',
-        content: `${toolCall.name} ${JSON.stringify(toolCall.input)}`,
+      options.appendMessage({
+        role: 'tool_call',
+        content: formatToolCall(toolCall),
       });
     }
     return;
   }
 
   if (event.type === 'tool_result') {
-    appendMessage({
-      role: 'tool',
-      content: `${event.name} ${event.result.ok ? 'ok' : 'failed'}`,
-    });
+    const formatted = formatToolResult(event.name, event.result);
+    options.appendMessage({ role: 'tool_result', ...formatted });
     return;
   }
 
   if (event.type === 'assistant_final') {
-    appendMessage({ role: 'assistant', content: event.content });
+    options.finishAssistantMessage(event.content);
     return;
   }
 
-  appendMessage({ role: 'error', content: event.error });
+  options.appendMessage({ role: 'error', content: event.error });
 }
