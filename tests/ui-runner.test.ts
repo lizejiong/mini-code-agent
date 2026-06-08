@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { createAgentRunner } from '../src/ui/useAgentRunner.js';
+import type { TuiMessage } from '../src/ui/types.js';
 
 describe('createAgentRunner', () => {
   test('records user and assistant messages for a successful task', async () => {
@@ -90,5 +91,72 @@ describe('createAgentRunner', () => {
       { role: 'user', content: 'first' },
       { role: 'status', content: '任务运行中，请等待当前任务结束。' },
     ]);
+  });
+
+  test('refreshes todos after successful todo_write tool result', async () => {
+    let refreshed = 0;
+    const messages: TuiMessage[] = [];
+    const runner = createAgentRunner({
+      appendMessage: (message) => messages.push(message),
+      refreshTodos: async () => {
+        refreshed += 1;
+      },
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({
+          type: 'tool_result',
+          name: 'todo_write',
+          result: { ok: true, content: 'Wrote 1 todos' },
+        });
+        return 'done';
+      },
+    });
+
+    await runner.run('更新任务');
+
+    expect(refreshed).toBe(1);
+  });
+
+  test('does not refresh todos for non-todo tool results', async () => {
+    let refreshed = 0;
+    const runner = createAgentRunner({
+      appendMessage: () => {},
+      refreshTodos: async () => {
+        refreshed += 1;
+      },
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({
+          type: 'tool_result',
+          name: 'read_file',
+          result: { ok: true, content: 'file' },
+        });
+        return 'done';
+      },
+    });
+
+    await runner.run('读文件');
+
+    expect(refreshed).toBe(0);
+  });
+
+  test('does not refresh todos when todo_write fails', async () => {
+    let refreshed = 0;
+    const runner = createAgentRunner({
+      appendMessage: () => {},
+      refreshTodos: async () => {
+        refreshed += 1;
+      },
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({
+          type: 'tool_result',
+          name: 'todo_write',
+          result: { ok: false, error: 'bad input' },
+        });
+        return 'done';
+      },
+    });
+
+    await runner.run('坏任务');
+
+    expect(refreshed).toBe(0);
   });
 });

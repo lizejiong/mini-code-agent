@@ -15,6 +15,7 @@ import {
   transcriptEntriesToMessages,
   type TranscriptEntry,
 } from './sessions/transcript.js';
+import { createTodoStore, summarizeTodos } from './todos/store.js';
 import { createRegistryForMode } from './tools/registryForMode.js';
 import { createAgentRunner } from './ui/useAgentRunner.js';
 import { renderTui } from './ui/renderTui.js';
@@ -81,6 +82,20 @@ async function main(argv: string[]): Promise<void> {
     ];
   };
   const planStore = createPlanStore({ sessionId: session.sessionId });
+  const todoStore = createTodoStore({ sessionId: session.sessionId });
+  const loadTodoSummary = async () => {
+    try {
+      return {
+        available: true as const,
+        ...summarizeTodos(await todoStore.read()),
+      };
+    } catch (error) {
+      return {
+        available: false as const,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
   const modeController = createModeController({
     initialMode: session.initialMode,
     sessionId: session.sessionId,
@@ -92,9 +107,11 @@ async function main(argv: string[]): Promise<void> {
   renderTui({
     sessionId: session.sessionId,
     getMode: () => modeController.getMode(),
-    runTask: async (task, appendMessage) => {
+    loadTodoSummary,
+    runTask: async (task, appendMessage, refreshTodos) => {
       const runner = createAgentRunner({
         appendMessage,
+        refreshTodos,
         runAgent: async ({ task, onEvent }) =>
           runAgent({
             task,
@@ -106,6 +123,7 @@ async function main(argv: string[]): Promise<void> {
                 context: toolContext,
                 modeController,
                 planStore,
+                todoStore,
               }),
             modeController,
             maxSteps: config.maxSteps,

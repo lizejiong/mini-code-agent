@@ -7,3 +7,15 @@ export type TuiMessage =
 
 export type TuiStatus = 'idle' | 'running';
 
+export type TuiTodoSummary =
+  | {
+      available: true;
+      pending: number;
+      inProgress: number;
+      completed: number;
+      current: string | undefined;
+    }
+  | {
+      available: false;
+      error: string;
+    };

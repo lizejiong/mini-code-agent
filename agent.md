@@ -37,6 +37,8 @@ src/
     index.ts
   context/
     projectContext.ts
+  todos/
+    store.ts
   cli.ts
   config.ts
   permissions.ts
@@ -56,6 +58,7 @@ docs/
 - `src/providers/`：模型 provider 适配层。负责请求和响应格式转换，不负责工具执行。
 - `src/tools/`：本地工具定义、输入 schema、工具实现和工具注册表。
 - `src/context/`：构造模型请求所需的项目上下文，例如项目约定文件、README 摘要和 git 状态；不直接执行工具。
+- `src/todos/`：维护 session 级任务清单状态，例如 todo 读写、摘要计算和后续任务进度上下文；不直接调用模型。
 - `src/workspace.ts`：路径解析和工作区边界保护。所有文件工具必须通过这里处理路径。
 - `src/permissions.ts`：写文件、执行命令等危险操作的确认逻辑。
 - `tests/`：用行为测试描述模块边界。新增生产逻辑前先写对应测试。

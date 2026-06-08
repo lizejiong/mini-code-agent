@@ -7,6 +7,7 @@ export type AgentRunnerRun = (
 
 export type CreateAgentRunnerOptions = {
   appendMessage(message: TuiMessage): void;
+  refreshTodos?: () => Promise<void>;
   runAgent: AgentRunnerRun;
 };
 
@@ -26,12 +27,17 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
 
       status = 'running';
       options.appendMessage({ role: 'user', content: task });
+      const pendingRefreshes: Promise<void>[] = [];
 
       try {
         await options.runAgent({
           task,
-          onEvent: (event) => appendEventMessage(options.appendMessage, event),
+          onEvent: (event) => {
+            appendEventMessage(options.appendMessage, event);
+            pendingRefreshes.push(maybeRefreshTodos(options, event));
+          },
         });
+        await Promise.all(pendingRefreshes);
       } catch (error) {
         options.appendMessage({
           role: 'error',
@@ -42,6 +48,24 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
       }
     },
   };
+}
+
+async function maybeRefreshTodos(
+  options: CreateAgentRunnerOptions,
+  event: AgentRunEvent,
+): Promise<void> {
+  if (event.type !== 'tool_result' || event.name !== 'todo_write' || !event.result.ok) {
+    return;
+  }
+
+  try {
+    await options.refreshTodos?.();
+  } catch (error) {
+    options.appendMessage({
+      role: 'error',
+      content: `Todo 刷新失败：${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 }
 
 function appendEventMessage(

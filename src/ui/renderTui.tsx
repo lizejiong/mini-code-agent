@@ -1,6 +1,6 @@
 import { render } from 'ink';
 import { App } from './App.js';
-import type { TuiMessage } from './types.js';
+import type { TuiMessage, TuiTodoSummary } from './types.js';
 
 export type RenderTuiOptions = {
   sessionId: string;
@@ -8,7 +8,9 @@ export type RenderTuiOptions = {
   runTask(
     task: string,
     appendMessage: (message: TuiMessage) => void,
+    refreshTodos: () => Promise<void>,
   ): Promise<void>;
+  loadTodoSummary(): Promise<TuiTodoSummary>;
 };
 
 export function renderTui(options: RenderTuiOptions): void {
@@ -17,6 +19,7 @@ export function renderTui(options: RenderTuiOptions): void {
       sessionId={options.sessionId}
       getMode={options.getMode}
       runTask={options.runTask}
+      loadTodoSummary={options.loadTodoSummary}
     />,
   );
 }

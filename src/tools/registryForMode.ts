@@ -1,5 +1,6 @@
 import type { AgentMode, ModeController } from '../modes/types.js';
 import type { PlanStore } from '../plans/store.js';
+import type { TodoStore } from '../todos/store.js';
 import { runCommandTool } from './commandTool.js';
 import {
   editFileTool,
@@ -14,6 +15,7 @@ import {
   createReadPlanTool,
   createWritePlanTool,
 } from './planModeTools.js';
+import { createTodoReadTool, createTodoWriteTool } from './todoTools.js';
 import type { ToolContext, ToolRegistry } from './types.js';
 
 export function createRegistryForMode(options: {
@@ -21,8 +23,14 @@ export function createRegistryForMode(options: {
   context: ToolContext;
   modeController: ModeController;
   planStore: PlanStore;
+  todoStore: TodoStore;
 }): ToolRegistry {
-  const shared = [readFileTool, searchFilesTool];
+  const shared = [
+    readFileTool,
+    searchFilesTool,
+    createTodoReadTool(options.todoStore),
+    createTodoWriteTool(options.todoStore),
+  ];
   const tools =
     options.mode === 'plan'
       ? [
