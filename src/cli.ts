@@ -2,6 +2,11 @@
 import { config as loadDotenv } from 'dotenv';
 import { runAgent } from './agent/loop.js';
 import { parseCliArgs } from './cliArgs.js';
+import { compactConversation } from './compact/service.js';
+import {
+  estimateRoughTokens,
+  shouldAutoCompact as shouldAutoCompactMessages,
+} from './compact/roughTokens.js';
 import { loadConfig } from './config.js';
 import { createProjectContextBuilder } from './context/projectContext.js';
 import { askYesNo, createInteractivePermissions } from './permissions.js';
@@ -96,6 +101,33 @@ async function main(argv: string[]): Promise<void> {
       };
     }
   };
+  const runCompact = async (trigger: 'manual' | 'auto'): Promise<string> => {
+    const roughTokens = estimateRoughTokens(conversationMessages);
+    const result = await compactConversation({
+      messages: conversationMessages,
+      provider,
+      trigger,
+    });
+
+    if (session.transcriptPath) {
+      await appendTranscriptEntry(session.transcriptPath, {
+        type: 'compact',
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString(),
+        summary: result.summary,
+        trigger,
+        previousMessageCount: result.previousMessageCount,
+        keptMessageCount: result.keptMessages.length,
+        keptMessages: result.keptMessages,
+      });
+    }
+
+    /**
+     * compact 的本质是替换后续模型上下文，而不是在旧历史后追加一条摘要。
+     */
+    conversationMessages = result.nextMessages;
+    return `${trigger} compact completed: ${result.previousMessageCount} messages -> summary + ${result.keptMessages.length} recent messages (${roughTokens} rough tokens)`;
+  };
   const modeController = createModeController({
     initialMode: session.initialMode,
     sessionId: session.sessionId,
@@ -140,6 +172,8 @@ async function main(argv: string[]): Promise<void> {
             buildSystemContext,
             onEvent,
           }),
+        compact: runCompact,
+        shouldAutoCompact: () => shouldAutoCompactMessages(conversationMessages),
       });
 
       await runner.run(task);

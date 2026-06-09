@@ -15,6 +15,8 @@ export type CreateAgentRunnerOptions = {
   appendAssistantDelta(delta: string): void;
   finishAssistantMessage(content: string): void;
   refreshTodos?: () => Promise<void>;
+  compact?: (trigger: 'manual' | 'auto') => Promise<string>;
+  shouldAutoCompact?: () => boolean;
   runAgent: AgentRunnerRun;
 };
 
@@ -33,6 +35,29 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
       }
 
       status = 'running';
+      if (task.trim() === '/compact') {
+        try {
+          await runCompact(options, 'manual');
+        } catch {
+          /**
+           * runCompact 已经把错误写入 TUI；这里吞掉异常，保持 runner.run 的“展示错误但不抛出”语义。
+           */
+        } finally {
+          status = 'idle';
+        }
+        return;
+      }
+
+      if (options.shouldAutoCompact?.()) {
+        try {
+          await runCompact(options, 'auto');
+        } catch {
+          /**
+           * 自动 compact 是上下文优化，不应阻塞用户的正常任务；失败信息已经展示，继续运行 agent。
+           */
+        }
+      }
+
       options.appendMessage({ role: 'user', content: task });
       const pendingRefreshes: Promise<void>[] = [];
 
@@ -55,6 +80,28 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
       }
     },
   };
+}
+
+async function runCompact(
+  options: CreateAgentRunnerOptions,
+  trigger: 'manual' | 'auto',
+): Promise<void> {
+  if (!options.compact) {
+    throw new Error('Compact is not configured.');
+  }
+
+  try {
+    options.appendMessage({
+      role: 'compact',
+      content: await options.compact(trigger),
+    });
+  } catch (error) {
+    options.appendMessage({
+      role: 'error',
+      content: `Compact failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    throw error;
+  }
 }
 
 async function maybeRefreshTodos(

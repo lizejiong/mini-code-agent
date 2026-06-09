@@ -123,6 +123,89 @@ describe('session transcript', () => {
     ]);
   });
 
+  test('uses the latest compact entry as the restored chat history boundary', () => {
+    const entries: TranscriptEntry[] = [
+      {
+        type: 'user',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:00.000Z',
+        content: 'old request',
+      },
+      {
+        type: 'compact',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:01.000Z',
+        summary: '压缩摘要',
+        trigger: 'manual',
+        previousMessageCount: 4,
+        keptMessageCount: 1,
+        keptMessages: [{ role: 'user', content: 'recent request' }],
+      },
+      {
+        type: 'assistant',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:02.000Z',
+        content: 'after compact',
+        toolCalls: [],
+      },
+    ];
+
+    expect(transcriptEntriesToMessages(entries)).toEqual([
+      {
+        role: 'system',
+        content:
+          'Conversation compacted. Earlier messages are summarized below. Continue using the summary as authoritative context.',
+      },
+      {
+        role: 'user',
+        content:
+          'This session is being continued from a compacted conversation.\n\nSummary:\n压缩摘要\n\nRecent messages are preserved verbatim after this summary.',
+      },
+      { role: 'user', content: 'recent request' },
+      { role: 'assistant', content: 'after compact', toolCalls: [] },
+    ]);
+  });
+
+  test('uses only the newest compact entry when multiple compactions exist', () => {
+    const entries: TranscriptEntry[] = [
+      {
+        type: 'compact',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:00.000Z',
+        summary: '旧摘要',
+        trigger: 'manual',
+        previousMessageCount: 10,
+        keptMessageCount: 0,
+        keptMessages: [],
+      },
+      {
+        type: 'user',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:01.000Z',
+        content: 'between',
+      },
+      {
+        type: 'compact',
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        timestamp: '2026-06-07T00:00:02.000Z',
+        summary: '新摘要',
+        trigger: 'auto',
+        previousMessageCount: 12,
+        keptMessageCount: 0,
+        keptMessages: [],
+      },
+    ];
+
+    const messages = transcriptEntriesToMessages(entries);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toEqual({
+      role: 'user',
+      content:
+        'This session is being continued from a compacted conversation.\n\nSummary:\n新摘要',
+    });
+  });
+
   test('lists jsonl session files from newest to oldest', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mini-agent-transcript-'));
     const older = join(root, 'older.jsonl');

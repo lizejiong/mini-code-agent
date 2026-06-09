@@ -196,6 +196,105 @@ describe('createAgentRunner', () => {
 
     expect(messages).toContainEqual({ role: 'assistant', content: 'done' });
   });
+
+  test('runs manual compact command without calling the agent', async () => {
+    const messages: TuiMessage[] = [];
+    let compactTrigger: string | undefined;
+    let agentCalled = false;
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      compact: async (trigger) => {
+        compactTrigger = trigger;
+        return 'manual compact completed: 4 messages -> summary + 2 recent messages';
+      },
+      runAgent: async () => {
+        agentCalled = true;
+        return 'should not run';
+      },
+    });
+
+    await runner.run('/compact');
+
+    expect(compactTrigger).toBe('manual');
+    expect(agentCalled).toBe(false);
+    expect(messages).toEqual([
+      {
+        role: 'compact',
+        content: 'manual compact completed: 4 messages -> summary + 2 recent messages',
+      },
+    ]);
+  });
+
+  test('runs auto compact before a normal task', async () => {
+    const messages: TuiMessage[] = [];
+    const calls: string[] = [];
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      shouldAutoCompact: () => true,
+      compact: async (trigger) => {
+        calls.push(`compact:${trigger}`);
+        return 'auto compact completed: kept 8 recent messages';
+      },
+      runAgent: async ({ task, onEvent }) => {
+        calls.push(`agent:${task}`);
+        onEvent?.({ type: 'assistant_final', content: 'done' });
+        return 'done';
+      },
+    });
+
+    await runner.run('继续实现');
+
+    expect(calls).toEqual(['compact:auto', 'agent:继续实现']);
+    expect(messages).toEqual([
+      {
+        role: 'compact',
+        content: 'auto compact completed: kept 8 recent messages',
+      },
+      { role: 'user', content: '继续实现' },
+      { role: 'assistant', content: 'done' },
+    ]);
+  });
+
+  test('continues the normal task when auto compact fails', async () => {
+    const messages: TuiMessage[] = [];
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      shouldAutoCompact: () => true,
+      compact: async () => {
+        throw new Error('compact failed');
+      },
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({ type: 'assistant_final', content: 'done' });
+        return 'done';
+      },
+    });
+
+    await runner.run('继续');
+
+    expect(messages).toEqual([
+      { role: 'error', content: 'Compact failed: compact failed' },
+      { role: 'user', content: '继续' },
+      { role: 'assistant', content: 'done' },
+    ]);
+  });
+
+  test('returns to idle when manual compact fails', async () => {
+    const messages: TuiMessage[] = [];
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      compact: async () => {
+        throw new Error('manual failed');
+      },
+      runAgent: async () => 'should not run',
+    });
+
+    await runner.run('/compact');
+
+    expect(runner.getStatus()).toBe('idle');
+    expect(messages).toEqual([
+      { role: 'error', content: 'Compact failed: manual failed' },
+    ]);
+  });
 });
 
 function fakeTuiCallbacks(messages: TuiMessage[]) {

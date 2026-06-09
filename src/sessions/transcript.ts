@@ -1,5 +1,9 @@
 import { mkdir, readdir, readFile, stat, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import {
+  buildCompactedMessages,
+  type CompactTrigger,
+} from '../compact/service.js';
 import type { AgentMode, ModeTranscriptReason } from '../modes/types.js';
 import type { ChatMessage, ChatToolCall } from '../providers/types.js';
 import type { ToolResult } from '../tools/types.js';
@@ -33,6 +37,16 @@ export type TranscriptEntry =
       mode: AgentMode;
       reason: ModeTranscriptReason;
       planFilePath?: string;
+    }
+  | {
+      type: 'compact';
+      sessionId: string;
+      timestamp: string;
+      summary: string;
+      trigger: CompactTrigger;
+      previousMessageCount: number;
+      keptMessageCount: number;
+      keptMessages: ChatMessage[];
     };
 
 export async function appendTranscriptEntry(
@@ -63,8 +77,30 @@ export async function readTranscriptEntries(filePath: string): Promise<Transcrip
 }
 
 export function transcriptEntriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
-  return entries.flatMap<ChatMessage>((entry) => {
+  const latestCompactIndex = findLatestCompactIndex(entries);
+  if (latestCompactIndex >= 0) {
+    const compactEntry = entries[latestCompactIndex];
+    if (compactEntry?.type !== 'compact') {
+      throw new Error('Invalid compact transcript state');
+    }
+
+    return [
+      ...buildCompactedMessages(compactEntry.summary, compactEntry.keptMessages),
+      ...entries
+        .slice(latestCompactIndex + 1)
+        .flatMap<ChatMessage>((entry) => transcriptEntryToMessages(entry)),
+    ];
+  }
+
+  return entries.flatMap<ChatMessage>((entry) => transcriptEntryToMessages(entry));
+}
+
+function transcriptEntryToMessages(entry: TranscriptEntry): ChatMessage[] {
     if (entry.type === 'mode') {
+      return [];
+    }
+
+    if (entry.type === 'compact') {
       return [];
     }
 
@@ -92,7 +128,16 @@ export function transcriptEntriesToMessages(entries: TranscriptEntry[]): ChatMes
         content: JSON.stringify(entry.result),
       },
     ];
-  });
+}
+
+function findLatestCompactIndex(entries: TranscriptEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === 'compact') {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 export async function listSessionFilesNewestFirst(projectDir: string): Promise<string[]> {

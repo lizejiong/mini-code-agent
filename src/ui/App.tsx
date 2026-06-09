@@ -153,6 +153,10 @@ function renderMessage(message: TuiMessage) {
     );
   }
 
+  if (message.role === 'compact') {
+    return <Text color="magenta">Compact  {message.content}</Text>;
+  }
+
   if (message.role === 'status') {
     return <Text dimColor>Status  {message.content}</Text>;
   }
