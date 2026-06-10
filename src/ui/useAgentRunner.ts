@@ -20,8 +20,11 @@ export type CreateAgentRunnerOptions = {
   runAgent: AgentRunnerRun;
 };
 
+const ASSISTANT_DELTA_FLUSH_INTERVAL_MS = 32;
+
 export function createAgentRunner(options: CreateAgentRunnerOptions) {
   let status: TuiStatus = 'idle';
+  const assistantDeltaBuffer = createAssistantDeltaBuffer(options);
 
   return {
     getStatus: () => status,
@@ -65,17 +68,20 @@ export function createAgentRunner(options: CreateAgentRunnerOptions) {
         await options.runAgent({
           task,
           onEvent: (event) => {
-            appendEventMessage(options, event);
+            appendEventMessage(options, event, assistantDeltaBuffer);
             pendingRefreshes.push(maybeRefreshTodos(options, event));
           },
         });
+        assistantDeltaBuffer.flush();
         await Promise.all(pendingRefreshes);
       } catch (error) {
+        assistantDeltaBuffer.flush();
         options.appendMessage({
           role: 'error',
           content: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        assistantDeltaBuffer.flush();
         status = 'idle';
       }
     },
@@ -125,7 +131,12 @@ async function maybeRefreshTodos(
 function appendEventMessage(
   options: CreateAgentRunnerOptions,
   event: AgentRunEvent,
+  assistantDeltaBuffer: AssistantDeltaBuffer,
 ): void {
+  if (event.type !== 'assistant_delta') {
+    assistantDeltaBuffer.flush();
+  }
+
   if (event.type === 'step_start') {
     options.appendMessage({
       role: 'status',
@@ -135,7 +146,7 @@ function appendEventMessage(
   }
 
   if (event.type === 'assistant_delta') {
-    options.appendAssistantDelta(event.content);
+    assistantDeltaBuffer.append(event.content);
     return;
   }
 
@@ -161,4 +172,43 @@ function appendEventMessage(
   }
 
   options.appendMessage({ role: 'error', content: event.error });
+}
+
+type AssistantDeltaBuffer = {
+  append(delta: string): void;
+  flush(): void;
+};
+
+function createAssistantDeltaBuffer(
+  options: Pick<CreateAgentRunnerOptions, 'appendAssistantDelta'>,
+): AssistantDeltaBuffer {
+  let pending = '';
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+
+    if (!pending) {
+      return;
+    }
+
+    const delta = pending;
+    pending = '';
+    options.appendAssistantDelta(delta);
+  };
+
+  return {
+    append(delta: string) {
+      pending += delta;
+      if (timer) {
+        return;
+      }
+
+      timer = setTimeout(flush, ASSISTANT_DELTA_FLUSH_INTERVAL_MS);
+    },
+    flush,
+  };
 }

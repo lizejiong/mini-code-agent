@@ -1,8 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createAgentRunner } from '../src/ui/useAgentRunner.js';
 import type { TuiMessage } from '../src/ui/types.js';
 
 describe('createAgentRunner', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test('records user and assistant messages for a successful task', async () => {
     const messages: TuiMessage[] = [];
     const runner = createAgentRunner({
@@ -180,6 +184,39 @@ describe('createAgentRunner', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: '你好', streaming: false },
     ]);
+  });
+
+  test('batches assistant deltas before flushing to the TUI', async () => {
+    vi.useFakeTimers();
+    const messages: TuiMessage[] = [];
+    let finishAgent!: () => void;
+    const agentFinished = new Promise<string>((resolve) => {
+      finishAgent = () => resolve('done');
+    });
+    const runner = createAgentRunner({
+      ...fakeTuiCallbacks(messages),
+      runAgent: async ({ onEvent }) => {
+        onEvent?.({ type: 'assistant_delta', content: 'a' });
+        onEvent?.({ type: 'assistant_delta', content: 'b' });
+        return agentFinished;
+      },
+    });
+
+    const running = runner.run('stream');
+    await Promise.resolve();
+
+    expect(messages).toEqual([{ role: 'user', content: 'stream' }]);
+
+    vi.advanceTimersByTime(32);
+    await Promise.resolve();
+
+    expect(messages).toEqual([
+      { role: 'user', content: 'stream' },
+      { role: 'assistant', content: 'ab', streaming: true },
+    ]);
+
+    finishAgent();
+    await running;
   });
 
   test('adds assistant final when no streaming message exists', async () => {
