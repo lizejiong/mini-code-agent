@@ -4,6 +4,9 @@ import type { TodoStore } from '../todos/store.js';
 import { runCommandTool } from './commandTool.js';
 import {
   editFileTool,
+  globFilesTool,
+  grepFilesTool,
+  listDirTool,
   readFileTool,
   searchFilesTool,
   writeFileTool,
@@ -28,6 +31,9 @@ export function createRegistryForMode(options: {
   const shared = [
     readFileTool,
     searchFilesTool,
+    listDirTool,
+    globFilesTool,
+    grepFilesTool,
     createTodoReadTool(options.todoStore),
     createTodoWriteTool(options.todoStore),
   ];

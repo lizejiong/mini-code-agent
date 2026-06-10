@@ -21,6 +21,19 @@ export function formatToolCall(toolCall: ChatToolCall): string {
     return `${toolCall.name} "${input.query}"`;
   }
 
+  if (toolCall.name === 'list_dir' && typeof input.path === 'string') {
+    return `${toolCall.name} ${input.path}`;
+  }
+
+  if (toolCall.name === 'glob_files' && typeof input.pattern === 'string') {
+    return `${toolCall.name} ${input.pattern}`;
+  }
+
+  if (toolCall.name === 'grep_files' && typeof input.pattern === 'string') {
+    const scope = typeof input.glob === 'string' ? ` in ${input.glob}` : '';
+    return `${toolCall.name} "${input.pattern}"${scope}`;
+  }
+
   if (toolCall.name === 'run_command' && typeof input.command === 'string') {
     return `${toolCall.name} ${input.command}`;
   }

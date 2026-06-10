@@ -20,8 +20,25 @@ describe('ui formatters', () => {
       formatToolCall({ id: '2', name: 'search_files', input: { query: 'todo' } }),
     ).toBe('search_files "todo"');
     expect(
+      formatToolCall({ id: '3', name: 'list_dir', input: { path: 'src/tools' } }),
+    ).toBe('list_dir src/tools');
+    expect(
       formatToolCall({
-        id: '3',
+        id: '4',
+        name: 'glob_files',
+        input: { pattern: 'src/**/*.ts' },
+      }),
+    ).toBe('glob_files src/**/*.ts');
+    expect(
+      formatToolCall({
+        id: '5',
+        name: 'grep_files',
+        input: { pattern: 'compactConversation', glob: 'src/**/*.ts' },
+      }),
+    ).toBe('grep_files "compactConversation" in src/**/*.ts');
+    expect(
+      formatToolCall({
+        id: '6',
         name: 'todo_write',
         input: { todos: [{ id: '1' }] },
       }),

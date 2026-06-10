@@ -231,6 +231,201 @@ describe('local tools', () => {
     expect(result).toEqual({ ok: true, content: 'src/tool.ts' });
   });
 
+  test('list_dir lists directories before files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'b-dir'), { recursive: true });
+    await mkdir(join(root, 'a-dir'), { recursive: true });
+    await writeFile(join(root, 'z.txt'), '', 'utf8');
+    await writeFile(join(root, 'a.txt'), '', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('list_dir', {
+      path: '.',
+      limit: 10,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      content: 'dir  a-dir\ndir  b-dir\nfile a.txt\nfile z.txt',
+    });
+  });
+
+  test('list_dir reports non-directory targets', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'note.txt'), 'hello', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('list_dir', {
+      path: 'note.txt',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'list_dir target is not a directory: note.txt',
+    });
+  });
+
+  test('list_dir skips generated directories', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(root, 'node_modules'), { recursive: true });
+    await mkdir(join(root, 'dist'), { recursive: true });
+    await mkdir(join(root, '.git'), { recursive: true });
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('list_dir', {
+      path: '.',
+      limit: 20,
+    });
+
+    expect(result).toEqual({ ok: true, content: 'dir  src' });
+  });
+
+  test('glob_files matches recursive TypeScript files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src', 'nested'), { recursive: true });
+    await writeFile(join(root, 'src', 'index.ts'), '', 'utf8');
+    await writeFile(join(root, 'src', 'nested', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, 'README.md'), '', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('glob_files', {
+      pattern: 'src/**/*.ts',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      content: 'src/index.ts\nsrc/nested/tool.ts',
+    });
+  });
+
+  test('glob_files respects limit', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'a.txt'), '', 'utf8');
+    await writeFile(join(root, 'b.txt'), '', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('glob_files', {
+      pattern: '*.txt',
+      limit: 1,
+    });
+
+    expect(result).toEqual({ ok: true, content: 'a.txt' });
+  });
+
+  test('glob_files skips generated directories', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(root, 'node_modules', 'pkg'), { recursive: true });
+    await mkdir(join(root, 'dist'), { recursive: true });
+    await mkdir(join(root, '.git'), { recursive: true });
+    await writeFile(join(root, 'src', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, 'node_modules', 'pkg', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, 'dist', 'tool.ts'), '', 'utf8');
+    await writeFile(join(root, '.git', 'tool.ts'), '', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('glob_files', {
+      pattern: '**/*.ts',
+      limit: 20,
+    });
+
+    expect(result).toEqual({ ok: true, content: 'src/tool.ts' });
+  });
+
+  test('grep_files finds literal text with line numbers', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'a.ts'), 'first\nNeedle here\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: 'needle',
+      glob: 'src/**/*.ts',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      content: 'src/a.ts:2: Needle here',
+    });
+  });
+
+  test('grep_files supports regex search', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'a.ts'), 'const answer = 42;\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: 'const\\s+\\w+',
+      regex: true,
+      case_sensitive: true,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      content: 'src/a.ts:1: const answer = 42;',
+    });
+  });
+
+  test('grep_files filters candidate files by glob', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await mkdir(join(root, 'docs'), { recursive: true });
+    await writeFile(join(root, 'src', 'a.ts'), 'target\n', 'utf8');
+    await writeFile(join(root, 'docs', 'a.md'), 'target\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: 'target',
+      glob: 'src/**/*.ts',
+    });
+
+    expect(result).toEqual({ ok: true, content: 'src/a.ts:1: target' });
+  });
+
+  test('grep_files reports invalid regex', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: '[',
+      regex: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('Invalid regex for grep_files');
+    }
+  });
+
+  test('grep_files respects limit', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'a.txt'), 'same\n', 'utf8');
+    await writeFile(join(root, 'b.txt'), 'same\n', 'utf8');
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: 'same',
+      limit: 1,
+    });
+
+    expect(result).toEqual({ ok: true, content: 'a.txt:1: same' });
+  });
+
+  test('grep_files skips binary files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
+    await writeFile(join(root, 'text.txt'), 'needle\n', 'utf8');
+    await writeFile(join(root, 'image.bin'), Buffer.from([0, 110, 101, 101, 100, 108, 101]));
+    const registry = await createRegistry(root);
+
+    const result = await registry.execute('grep_files', {
+      pattern: 'needle',
+    });
+
+    expect(result).toEqual({ ok: true, content: 'text.txt:1: needle' });
+  });
+
   test('run_command executes approved commands in the workspace', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mini-agent-tools-'));
     const registry = await createRegistry(root);

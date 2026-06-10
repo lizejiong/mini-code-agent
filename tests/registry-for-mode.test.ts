@@ -50,6 +50,9 @@ describe('createRegistryForMode', () => {
     expect(registry.definitions.map((tool) => tool.name).sort()).toEqual([
       'EnterPlanMode',
       'edit_file',
+      'glob_files',
+      'grep_files',
+      'list_dir',
       'read_file',
       'run_command',
       'search_files',
@@ -70,6 +73,9 @@ describe('createRegistryForMode', () => {
 
     expect(registry.definitions.map((tool) => tool.name).sort()).toEqual([
       'ExitPlanMode',
+      'glob_files',
+      'grep_files',
+      'list_dir',
       'read_file',
       'read_plan',
       'search_files',

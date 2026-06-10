@@ -8,6 +8,9 @@ import type {
 import { runCommandTool } from './commandTool.js';
 import {
   editFileTool,
+  globFilesTool,
+  grepFilesTool,
+  listDirTool,
   readFileTool,
   searchFilesTool,
   writeFileTool,
@@ -15,7 +18,16 @@ import {
 
 export function createDefaultToolRegistry(context: ToolContext): ToolRegistry {
   return createToolRegistry(
-    [readFileTool, writeFileTool, editFileTool, searchFilesTool, runCommandTool],
+    [
+      readFileTool,
+      writeFileTool,
+      editFileTool,
+      searchFilesTool,
+      listDirTool,
+      globFilesTool,
+      grepFilesTool,
+      runCommandTool,
+    ],
     context,
   );
 }
