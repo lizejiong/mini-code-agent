@@ -3,6 +3,7 @@ import type { AgentMode, ModeController } from '../modes/types.js';
 import { createModeSystemPrompt } from '../prompts/planMode.js';
 import type { TranscriptEntry } from '../sessions/transcript.js';
 import type { ToolRegistry, ToolResult } from '../tools/types.js';
+import { createTodoPolicyPrompt } from '../todos/policy.js';
 
 export type RunAgentOptions = {
   task: string;
@@ -155,6 +156,20 @@ async function buildSystemMessages(
         mode,
         options.modeController.getPlanFilePath(),
       ),
+    });
+  }
+
+  const todoPolicyPrompt = createTodoPolicyPrompt({
+    task: options.task,
+    mode,
+  });
+  if (todoPolicyPrompt) {
+    /**
+     * Todo 策略放在 mode prompt 后面：先确定当前模式是否允许执行，再补充 normal mode 下的进度维护习惯。
+     */
+    systemMessages.push({
+      role: 'system',
+      content: todoPolicyPrompt,
     });
   }
 

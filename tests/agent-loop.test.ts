@@ -432,4 +432,124 @@ describe('runAgent', () => {
       }),
     ).rejects.toThrow('Agent stopped after reaching max steps');
   });
+
+  test('injects todo policy prompt for complex normal mode tasks', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: '帮我实现一个新功能',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      modeController: {
+        getMode: () => 'normal',
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+    });
+
+    expect(requests[0].messages).toContainEqual({
+      role: 'system',
+      content: expect.stringContaining('Todo 使用策略'),
+    });
+  });
+
+  test('does not inject todo policy prompt for simple tasks', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: '怎么使用',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      modeController: {
+        getMode: () => 'normal',
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+    });
+
+    expect(
+      requests[0].messages.some(
+        (message) =>
+          message.role === 'system' &&
+          message.content.includes('Todo 使用策略'),
+      ),
+    ).toBe(false);
+  });
+
+  test('does not inject todo policy prompt in plan mode', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: '帮我实现一个新功能',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      modeController: {
+        getMode: () => 'plan',
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+    });
+
+    expect(
+      requests[0].messages.some(
+        (message) =>
+          message.role === 'system' &&
+          message.content.includes('Todo 使用策略'),
+      ),
+    ).toBe(false);
+  });
+
+  test('places todo policy after project context and mode prompt', async () => {
+    const requests: ChatCompletionRequest[] = [];
+    const provider: ChatProvider = {
+      complete: async (request) => {
+        requests.push(request);
+        return { content: 'done', toolCalls: [] };
+      },
+    };
+
+    await runAgent({
+      task: '帮我实现一个新功能',
+      provider,
+      tools: fakeRegistry(),
+      maxSteps: 1,
+      buildSystemContext: async () => 'Project context here',
+      modeController: {
+        getMode: () => 'normal',
+        getPlanFilePath: () => 'plan.md',
+        enterPlanMode: async () => ({ ok: true, content: 'entered' }),
+        exitPlanMode: async () => ({ ok: true, content: 'exited' }),
+      },
+    });
+
+    expect(requests[0].messages.slice(0, 3)).toEqual([
+      { role: 'system', content: 'Project context here' },
+      { role: 'system', content: expect.stringContaining('normal mode') },
+      { role: 'system', content: expect.stringContaining('Todo 使用策略') },
+    ]);
+  });
 });
