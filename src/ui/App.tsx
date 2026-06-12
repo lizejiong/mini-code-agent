@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
+import {
+  createTuiViewModel,
+  type TuiViewRow,
+  type TuiViewTone,
+} from './displayModel.js';
 import type { TuiMessage, TuiStatus, TuiTodoSummary } from './types.js';
 
 export type AppProps = {
@@ -102,77 +107,106 @@ export function App(props: AppProps) {
     }
   });
 
+  const view = createTuiViewModel({
+    sessionId: props.sessionId,
+    mode: props.getMode(),
+    status,
+    todoSummary,
+    input,
+    messages,
+  });
+
   return (
     <Box flexDirection="column">
-      <Text>Mini Code Agent</Text>
-      <Text>
-        Session: {props.sessionId} Mode: {props.getMode()} Status: {status}
-      </Text>
-      <Text>{formatTodoSummary(todoSummary)}</Text>
+      <Header title={view.header.title} session={view.header.session} meta={view.header.meta} />
       <Box flexDirection="column" marginY={1}>
-        {messages.map((message, index) => (
+        {view.rows.map((row, index) => (
           <Box key={index} flexDirection="column" marginBottom={1}>
-            {renderMessage(message)}
+            <TuiRow row={row} />
           </Box>
         ))}
       </Box>
-      <Text>{status === 'running' ? 'agent is running...' : `> ${input}`}</Text>
-      <Text dimColor>Ctrl+C 退出</Text>
+      <Box flexDirection="row">
+        <Text color="cyan">{view.prompt.marker} </Text>
+        <Text>{view.prompt.text}</Text>
+        <Text dimColor>  {view.prompt.hint}</Text>
+      </Box>
     </Box>
   );
 }
 
-function renderMessage(message: TuiMessage) {
-  if (message.role === 'user') {
-    return (
-      <>
-        <Text color="cyan">You</Text>
-        <Text>  {message.content}</Text>
-      </>
-    );
-  }
-
-  if (message.role === 'assistant') {
-    return (
-      <>
-        <Text color="white">Assistant{message.streaming ? ' ...' : ''}</Text>
-        <Text>  {message.content}</Text>
-      </>
-    );
-  }
-
-  if (message.role === 'tool_call') {
-    return <Text color="yellow">Tool  {message.content}</Text>;
-  }
-
-  if (message.role === 'tool_result') {
-    return (
-      <Text color={message.ok ? 'green' : 'red'}>
-        Result  {message.content}
-      </Text>
-    );
-  }
-
-  if (message.role === 'compact') {
-    return <Text color="magenta">Compact  {message.content}</Text>;
-  }
-
-  if (message.role === 'status') {
-    return <Text dimColor>Status  {message.content}</Text>;
-  }
-
-  return <Text color="red">Error  {message.content}</Text>;
+function Header(props: { title: string; session: string; meta: string[] }) {
+  return (
+    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+      <Box flexDirection="row">
+        <Text color="cyan">● </Text>
+        <Text bold>{props.title}</Text>
+        <Text dimColor>  {props.session}</Text>
+      </Box>
+      <Box flexDirection="row">
+        {props.meta.map((item, index) => (
+          <Text key={item} dimColor>
+            {index > 0 ? '  ·  ' : ''}
+            {item}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
 }
 
-function formatTodoSummary(summary: TuiTodoSummary | undefined): string {
-  if (!summary) {
-    return 'Todos: loading';
+function TuiRow(props: { row: TuiViewRow }) {
+  const { row } = props;
+
+  if (row.type === 'message') {
+    return (
+      <>
+        <Text color={row.label.startsWith('Assistant') ? 'blue' : 'cyan'}>{row.label}</Text>
+        <Box marginLeft={2}>
+          <Text>{row.text}</Text>
+        </Box>
+      </>
+    );
   }
 
-  if (!summary.available) {
-    return `Todos: unavailable (${summary.error})`;
+  if (row.type === 'status') {
+    return <Text dimColor>{row.text}</Text>;
   }
 
-  const current = summary.current ? ` Current: ${summary.current}` : '';
-  return `Todos: ${summary.inProgress} in_progress / ${summary.pending} pending / ${summary.completed} completed${current}`;
+  return (
+    <>
+      <Box flexDirection="row">
+        <Text color={toneColor(row.tone)}>● </Text>
+        <Text dimColor>{row.label} </Text>
+        <Text>{row.target}</Text>
+      </Box>
+      {row.result ? (
+        <Box marginLeft={2}>
+          <Text color={row.tone === 'error' ? 'red' : undefined} dimColor={row.tone !== 'error'}>
+            {row.result}
+          </Text>
+        </Box>
+      ) : null}
+    </>
+  );
+}
+
+function toneColor(tone: TuiViewTone): string | undefined {
+  if (tone === 'working') {
+    return 'yellow';
+  }
+
+  if (tone === 'success') {
+    return 'green';
+  }
+
+  if (tone === 'error') {
+    return 'red';
+  }
+
+  if (tone === 'compact') {
+    return 'magenta';
+  }
+
+  return undefined;
 }
